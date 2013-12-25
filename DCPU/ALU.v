@@ -33,10 +33,10 @@ module ALU(
   wire[15:0] ShiftMark; assign ShiftMark = 16'hFFFF;
   
   // OUTPUT : OZF
-  assign OZF = (OUT == 16'b0);
+  assign OZF = (ROUT == 16'b0);
   
   // OUTPUT : ONF
-  assign ONF = (OPC[3]) ? (1'b0) : (OUT[15]);
+  assign ONF = (OPC[3]) ? (1'b0) : (ROUT[15]);
   
   // OUTPUT : OUT, OCF
   assign OUT = (OPC==4'b0111) ? (16'b0) : (ROUT);
