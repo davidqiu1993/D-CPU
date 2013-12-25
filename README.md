@@ -1,5 +1,5 @@
-#D-CUP
-D-CUP is an opensource hardware project on 16-bit CPU design. This project uses Verilog as hardware description language.
+#D-CPU
+D-CPU is an opensource hardware project on 16-bit CPU design. This project uses Verilog as hardware description language.
 
 ##Directories
 - ```Documents``` : The design documents of the project.
@@ -9,4 +9,3 @@ D-CUP is an opensource hardware project on 16-bit CPU design. This project uses 
 - David Qiu (david@davidqiu.com)<br/>
   - Create the project (2013.12.12)
   - Implementation and testing of structure-level ALU (2013.12.24)
-
