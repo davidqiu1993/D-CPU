@@ -32,6 +32,7 @@ module ALU(
   reg [15:0] ROUT;
   wire[15:0] ShiftMark; assign ShiftMark = 16'hFFFF;
   
+  
   // OUTPUT : OZF
   assign OZF = (ROUT == 16'b0);
   
@@ -41,61 +42,63 @@ module ALU(
   // OUTPUT : OUT, OCF
   assign OUT = (OPC==4'b0111) ? (16'b0) : (ROUT);
   always @(*) case(OPC)
-      4'b0000:begin // Mnomonic: ADD
-                {OCF,ROUT}  = IN1+IN2;
+      4'b0000:begin // Mnomonic: ALU_LOAD
+                ROUT        = IN2;
+                OCF         = 0;
               end
-      4'b0001:begin // Mnomonic: ADDI
-                {OCF,ROUT}  = IN1+IN2;
+      4'b0001:begin // Mnomonic: <null>
+                ROUT        = 0;
+                OCF         = 0;
               end
-      4'b0010:begin // Mnomonic: ADDC
+      4'b0010:begin // Mnomonic: ALU_ADDC
                 {OCF,ROUT}  = IN1+IN2+ICF;
               end
-      4'b0011:begin // Mnomonic: SUB
-                ROUT        = IN1-IN2;
+      4'b0011:begin // Mnomonic: <null>
+                ROUT        = 0;
                 OCF         = 0;
               end
-      4'b0100:begin // Mnomonic: SUBI
-                ROUT        = IN1-IN2;
+      4'b0100:begin // Mnomonic: <null>
+                ROUT        = 0;
                 OCF         = 0;
                end
-      4'b0101:begin // Mnomonic: SUBC
+      4'b0101:begin // Mnomonic: ALU_SUBB
                 ROUT        = IN1-IN2-ICF;
                 OCF         = 0;
               end
-      4'b0110:begin // Mnomonic: INC
+      4'b0110:begin // Mnomonic: ALU_INC
                 {OCF,ROUT}  = IN1+1;
               end
-      4'b0111:begin // Mnomonic: CMP
+      4'b0111:begin // Mnomonic: ALU_CMP
                 ROUT        = IN1-IN2;
                 OCF         = 0;
               end
-      4'b1000:begin // Mnomonic: TRAN
-                ROUT        = IN1;
+      4'b1000:begin // Mnomonic: <null>
+                ROUT        = 0;
                 OCF         = 0;
               end
-      4'b1001:begin // Mnomonic: XOR
+      4'b1001:begin // Mnomonic: ALU_XOR
                 ROUT        = IN1^IN2;
                 OCF         = 0;
               end
-      4'b1010:begin // Mnomonic: AND
+      4'b1010:begin // Mnomonic: ALU_AND
                 ROUT        = IN1&IN2;
                 OCF         = 0;
               end
-      4'b1011:begin // Mnomonic: OR
+      4'b1011:begin // Mnomonic: ALU_OR
                 ROUT        = IN1|IN2;
                 OCF         = 0;
               end
-      4'b1100:begin // Mnomonic: SLL
+      4'b1100:begin // Mnomonic: ALU_SLL
                 {OCF,ROUT}  = IN1 << IN2[3:0]; 
               end
-      4'b1101:begin // Mnomonic: SLA
+      4'b1101:begin // Mnomonic: ALU_SLA
                 {OCF,ROUT}  = IN1 <<< IN2[3:0];
               end
-      4'b1110:begin // Mnomonic: SRL
+      4'b1110:begin // Mnomonic: ALU_SRL
                 OCF         = 0;
                 {ROUT,OCF}  = {IN1,OCF} >> IN2[3:0];
               end
-      4'b1111:begin // Mnomonic: SRA
+      4'b1111:begin // Mnomonic: ALU_SRA
                 OCF         = 0;
                 if(IN1[15]) {ROUT,OCF}  = {ShiftMark,IN1,OCF} >>> IN2[3:0];
                 else        {ROUT,OCF}  = {IN1,OCF} >>> IN2[3:0];
