@@ -1,10 +1,10 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
+// Organization:   Sun Yat-Sen University
+// Engineer:       David Qiu <david@davidqiu.com>
 // 
 // Create Date:    17:28:50 12/25/2013 
-// Design Name: 
+// Design Name:    DCUP - CPU Module
 // Module Name:    DCUP 
 // Project Name: 
 // Target Devices: 
@@ -23,12 +23,12 @@ module DCUP(
   input  wire       RST,          // Asynchronized Reset Signal (negedge)
   input  wire       EN,           // Enable Signal              (posedge)
   input  wire       Start,        // Program Start Signal       (posedge)
-  output reg [7:0]  InstMemAddr,  // Instruction Memory Address
+  output wire[7:0]  InstMemAddr,  // Instruction Memory Address
   input  wire[15:0] Inst,         // Instruction = {OPC[5], OP1[3], OP2[4], OP3[4]}
-  output reg [7:0]  DataMemAddr,  // Data Memory Address
+  output wire[7:0]  DataMemAddr,  // Data Memory Address
   input  wire[15:0] DataIn,       // Data Input
-  output reg        DataMemWE,    // Data Memory Write Enable
-  output reg [15:0] DataOut       // Data Output
+  output wire       DataMemWE,    // Data Memory Write Enable
+  output wire[15:0] DataOut       // Data Output
 );
   
   // === CPU State Definitions ===
@@ -61,7 +61,7 @@ module DCUP(
   `define ADDC  5'b10010
   `define SUB   5'b10011
   `define SUBI  5'b10100
-  `define SUBC  5'b10101
+  `define SUBB  5'b10101
   `define INC   5'b10110
   `define CMP   5'b10111
   // Control
@@ -91,32 +91,65 @@ module DCUP(
   `define ALU_SRA   5'b1111
   
   
+  // === Variable Marco Definitions ===
+  `define EXR1      GR[IDIR[10:8]]
+  `define EXR2      GR[IDIR[6:4]]
+  `define EXR3      GR[IDIR[2:0]]
+  `define EXVAL2    IDIR[7:4]
+  `define EXVAL3    IDIR[3:0]
+  `define WBR1N     WBIR[10:8]
+  
+  
   // === CPU State ===
   reg        state;
   reg        next_state;
   
   // === CPU General Storage ===
   reg [7:0]  PC;      // Program Counter      [STAGE:IF]
-  reg [15:0] GR[0:7]; // General Registers    [STAGE:ID]
+  reg [15:0] GR[0:7]; // General Registers    [STAGE:WB]
   
   // === Instruction Storage ===
-  reg [15:0] IDIR;    // Instruction Register [STAGE:ID]
-  reg [15:0] EXIR;    // Instruction Register [STAGE:EX]
-  reg [15:0] MRIR;    // Instruction Register [STAGE:MR]
-  reg [15:0] WBIR;    // Instruction Register [STAGE:WB]
+  reg [15:0] IDIR;    // Instruction Register [STAGE:IF]
+  reg [15:0] EXIR;    // Instruction Register [STAGE:ID]
+  reg [3:0]  EXOP;    // ALU Opcode Register  [STAGE:ID]
+  reg [15:0] MRIR;    // Instruction Register [STAGE:EX]
+  reg [15:0] WBIR;    // Instruction Register [STAGE:MR]
   
   // === Data Storage ===
-  reg [15:0] EXRA;    // Left Operand of ALU  [STAGE:EX]
-  reg [15:0] EXRB;    // Right Operand of ALU [STAGE:EX]
-  reg [15:0] EXSD;    // Store-to-Memory Data [STAGE:EX]
-  reg        EXCF;    // Carry Flag Input     [STAGE:EX]
-  reg [15:0] MRRC;    // Output result of ALU [STAGE:MR]
-  reg        MRCF;    // Carry Flag Output    [STAGE:MR]
-  reg        MRZF;    // Zero Flag Output     [STAGE:MR]
-  reg        MRNF;    // Negative Flag Output [STAGE:MR]
-  reg        MRDW;    // Data Write Enable    [STAGE:MR]
-  reg [15:0] MRSD;    // Store-to-Memory Data [STAGE:MR]
-  reg [15:0] WBRC;    // Result Data Register [STAGE:WB]
+  reg [15:0] EXRA;    // Left Operand of ALU  [STAGE:ID]
+  reg [15:0] EXRB;    // Right Operand of ALU [STAGE:ID]
+  reg [15:0] EXSD;    // Store-to-Memory Data [STAGE:ID]
+  reg        EXCF;    // Carry Flag Input     [STAGE:ID]
+  reg [15:0] MRRC;    // Output result of ALU [STAGE:EX]
+  reg        MRCF;    // Carry Flag Output    [STAGE:EX]
+  reg        MRZF;    // Zero Flag Output     [STAGE:EX]
+  reg        MRNF;    // Negative Flag Output [STAGE:EX]
+  reg        MRDW;    // Data Write Enable    [STAGE:EX]
+  reg [15:0] MRSD;    // Store-to-Memory Data [STAGE:EX]
+  reg [15:0] WBRC;    // Result Data Register [STAGE:MR]
+  
+  
+  // === Component ALU ===
+  wire[15:0] ALUOUT;
+  wire       ALUOCF;
+  wire       ALUOZF;
+  wire       ALUONF;
+  ALU        ALUM(.OPC(EXOP),   // Operation Code
+                  .IN1(EXRA),   // Input 1
+                  .IN2(EXRB),   // Input 2
+                  .ICF(EXCF),   // Input Carry Flag
+                  .OUT(ALUOUT), // Output
+                  .OCF(ALUOCF), // Output Carry Flag
+                  .OZF(ALUOZF), // Output Zero Flag
+                  .ONF(ALUONF)  // Output Negative Flag
+                  );
+  
+  
+  // === External Interfaces ===
+  assign InstMemAddr = PC;
+  assign DataMemAddr = MRRC[7:0];
+  assign DataMemWE   = MRDW;
+  assign DataOut     = MRSD;
   
   
   // === CPU State Machine ===
@@ -148,17 +181,17 @@ module DCUP(
         // Push instruction fetched from instruction memory
         IDIR <= Inst;
         // Select next instruction address
-        if((MRIR==`JUMP)
-        || (MRIR==`JMPR)
-        || (MRIR==`BZ  &&  MRZF)
-        || (MRIR==`BNZ && ~MRZF)
-        || (MRIR==`BN  &&  MRNF)
-        || (MRIR==`BNN && ~MRNF)
-        || (MRIR==`BC  &&  MRCF)
-        || (MRIR==`BNC && ~MRCF)
-        || (MRIR==`BB  && ~MRNF)
-        || (MRIR==`BS  &&  MRNF)
-        || (MRIR==`BE  &&  MRZF))
+        if((MRIR[15:11]==`JUMP)
+        || (MRIR[15:11]==`JMPR)
+        || (MRIR[15:11]==`BZ  &&  MRZF)
+        || (MRIR[15:11]==`BNZ && ~MRZF)
+        || (MRIR[15:11]==`BN  &&  MRNF)
+        || (MRIR[15:11]==`BNN && ~MRNF)
+        || (MRIR[15:11]==`BC  &&  MRCF)
+        || (MRIR[15:11]==`BNC && ~MRCF)
+        || (MRIR[15:11]==`BB  && ~MRNF)
+        || (MRIR[15:11]==`BS  &&  MRNF)
+        || (MRIR[15:11]==`BE  &&  MRZF))
         begin
           PC <= MRRC[7:0]; // Instruction address from ALU result
         end
@@ -177,14 +210,6 @@ module DCUP(
   // === STAGE: ID (Instruction Decode) ===
   always @(posedge CLK, posedge RST) begin
     if(RST) begin
-      GR[0] <= 0;       // Clear general registers
-      GR[1] <= 0;
-      GR[2] <= 0;
-      GR[3] <= 0;
-      GR[4] <= 0;
-      GR[5] <= 0;
-      GR[6] <= 0;
-      GR[7] <= 0;
       EXIR  <= 0;       // Clear instruction register
       EXRA  <= 0;       // Clear register A
       EXRB  <= 0;       // Clear register B
@@ -196,25 +221,227 @@ module DCUP(
         // Push instruction to the next instruction register
         EXIR  <= IDIR;
         
-        // Select the value of register A
+        // Select opcode for ALU
+        case(IDIR[15:14])
+          2'b00:  begin
+                    if(IDIR[13:11]==3'b010 || IDIR[13:11]==3'b111)
+                      EXOP  <= `ALU_ADDC;
+                    else
+                      EXOP  <= `ALU_LOAD;
+                  end
+          2'b01:  begin
+                    EXOP    <= `ALU_ADDC;
+                  end
+          2'b10:  begin
+                    if(IDIR[13:11]==3'b000 || IDIR[13:11]==3'b001)
+                      EXOP  <= `ALU_ADDC;
+                    else if(IDIR[13:11]==3'b011 || IDIR[13:11]==3'b100)
+                      EXOP  <= `ALU_SUBB;
+                    else
+                      EXOP  <= IDIR[14:11];
+                  end
+          2'b11:  begin
+                    EXOP    <= IDIR[14:11];
+                  end
+        endcase
         
-        
-        // Select the value of register B
-        
-        // Select the value of stored-data register
-        
-        // Update the values of general registers
-        
+        // Select the value of EXRA, EXRB, EXSD, EXCF
+        case(IDIR[15:11])
+          `NOP:   begin
+                    EXRA <= 0;
+                    EXRB <= 0;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `HALT:  begin
+                    EXRA <= 0;
+                    EXRB <= 0;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `LOAD:  begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXVAL3;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `STORE: begin
+                    EXRA <= 0;
+                    EXRB <= 0;
+                    EXSD <= `EXR1;
+                    EXCF <= 0;
+                  end
+          `LDIL:  begin
+                    EXRA <= 0;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `LDIH:  begin
+                    EXRA <= 0;
+                    EXRB <= {`EXVAL2,`EXVAL3,8'b0};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `JUMP:  begin
+                    EXRA <= 0;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `JMPR:  begin
+                    EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `BZ:    begin
+                    EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `BNZ:   begin
+                    EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `BN:    begin
+                    EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `BNN:   begin
+                    EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `BC:    begin
+                    EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `BNC:   begin
+                    EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `BB:   begin
+                    EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `BS:    begin
+                    EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `ADD:   begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `ADDI:  begin
+                    EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `ADDC:  begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= MRCF;
+                  end
+          `SUB:   begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `SUBI:  begin
+                    EXRA <= `EXR2;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `SUBB:  begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= MRCF;
+                  end
+          `INC:   begin
+                    EXRA <= `EXR2;
+                    EXRB <= 0;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `CMP:   begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `BE:    begin
+                    EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `XOR:   begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `AND:   begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `OR:    begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `SLL:   begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `SLA:   begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `SRL:   begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+          `SRA:   begin
+                    EXRA <= `EXR2;
+                    EXRB <= `EXR3;
+                    EXSD <= 0;
+                    EXCF <= 0;
+                  end
+        endcase
       end
       else begin // SIdle
-        GR[0] <= GR[0];   // Hold general registers
-        GR[1] <= GR[1];
-        GR[2] <= GR[2];
-        GR[3] <= GR[3];
-        GR[4] <= GR[4];
-        GR[5] <= GR[5];
-        GR[6] <= GR[6];
-        GR[7] <= GR[7];
         EXIR  <= EXIR;    // Hold instruction register
         EXRA  <= EXRA;    // Hold register A
         EXRB  <= EXRB;    // Hold register B
@@ -228,14 +455,39 @@ module DCUP(
   // === STAGE: EX (Execution) ===
   always @(posedge CLK, posedge RST) begin
     if(RST) begin
-      
+      MRIR  <= 0;         // Clear instruction register
+      MRRC  <= 0;         // Clear result from ALU
+      MRCF  <= 1'b0;      // Clear Carry Flag register
+      MRZF  <= 1'b0;      // Clear Zero Flag register
+      MRNF  <= 1'b0;      // Clear Negative Flag register
+      MRDW  <= 1'b0;      // Clear Data-Write enable signal
+      MRSD  <= 0;         // Clear Stored-Data register
     end
     else begin // CLK
       if(state==`SExec) begin
+        // Push instruction to next instruction register
+        MRIR  <= EXIR;
         
+        // Push the resut
+        MRRC  <= ALUOUT;
+        
+        // Push the flags
+        MRCF  <= ALUOCF;
+        MRZF  <= ALUOZF;
+        MRNF  <= ALUONF;
+        
+        // Set data-write configurations
+        MRDW  <= (EXIR[15:11]==`STORE);
+        MRSD  <= EXSD;
       end
       else begin // SIdle
-        
+        MRIR  <= MRIR;    // Hold instruction register
+        MRRC  <= MRRC;    // Hold result from ALU
+        MRCF  <= MRCF;    // Hold Carry Flag register
+        MRZF  <= MRZF;    // Hold Zero Flag register
+        MRNF  <= MRNF;    // Hold Negative Flag register
+        MRDW  <= MRDW;    // Hold Data-Write enable signal
+        MRSD  <= MRSD;    // Hold Stored-Data register
       end
     end
   end
@@ -244,14 +496,21 @@ module DCUP(
   // === STAGE: MR (Memory Read/Write) ===
   always @(posedge CLK, posedge RST) begin
     if(RST) begin
-      
+      WBIR  <= 0;         // Clear instruction register
+      WBRC  <= 0;         // Clear write back data
     end
     else begin // CLK
       if(state==`SExec) begin
+        // Push instruction to next instruction register
+        WBIR  <= MRIR;
         
+        // Select write back data
+        if(MRIR[15:11]==`LOAD) WBRC <= DataIn;
+        else                   WBRC <= MRRC;
       end
       else begin // SIdle
-        
+        WBIR  <= 0;       // Hold instruction register
+        WBRC  <= 0;       // Hold write back data
       end
     end
   end
@@ -260,14 +519,39 @@ module DCUP(
   // === STAGE: WB (Write Back) ===
   always @(posedge CLK, posedge RST) begin
     if(RST) begin
-      
+      GR[0] <= 0;         // Clear general registers
+      GR[1] <= 0;
+      GR[2] <= 0;
+      GR[3] <= 0;
+      GR[4] <= 0;
+      GR[5] <= 0;
+      GR[6] <= 0;
+      GR[7] <= 0;
     end
     else begin // CLK
-      if(state==`SExec) begin
-        
+      if((state==`SExec) && (WBIR[15:11]==`LOAD
+                          || WBIR[15:12]==2'b0010
+                          || (WBIR[15]==1'b1 && WBIR[14:11]!=4'b0111)))
+      begin
+        // Update values of general registers
+        GR[0] <= (`WBR1N==3'h0) ? (WBRC) : (GR[0]);
+        GR[1] <= (`WBR1N==3'h1) ? (WBRC) : (GR[1]);
+        GR[2] <= (`WBR1N==3'h2) ? (WBRC) : (GR[2]);
+        GR[3] <= (`WBR1N==3'h3) ? (WBRC) : (GR[3]);
+        GR[4] <= (`WBR1N==3'h4) ? (WBRC) : (GR[4]);
+        GR[5] <= (`WBR1N==3'h5) ? (WBRC) : (GR[5]);
+        GR[6] <= (`WBR1N==3'h6) ? (WBRC) : (GR[6]);
+        GR[7] <= (`WBR1N==3'h7) ? (WBRC) : (GR[7]);
       end
-      else begin // SIdle
-        
+      else begin // SIdle or Non-load
+        GR[0] <= GR[0];   // Hold general registers
+        GR[1] <= GR[1];
+        GR[2] <= GR[2];
+        GR[3] <= GR[3];
+        GR[4] <= GR[4];
+        GR[5] <= GR[5];
+        GR[6] <= GR[6];
+        GR[7] <= GR[7];
       end
     end
   end

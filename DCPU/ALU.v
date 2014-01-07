@@ -1,11 +1,11 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
+// Organization:   Sun Yat-Sen University
+// Engineer:       David Qiu <david@davidqiu.com>
 // 
 // Create Date:    00:20:49 12/12/2013 
-// Design Name: 
-// Module Name:    ALU 
+// Design Name:    DCUP - ALU Module
+// Module Name:    DCUP 
 // Project Name: 
 // Target Devices: 
 // Tool versions: 
