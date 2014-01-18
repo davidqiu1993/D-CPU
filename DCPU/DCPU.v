@@ -4,8 +4,8 @@
 // Engineer:       David Qiu <david@davidqiu.com>
 // 
 // Create Date:    17:28:50 12/25/2013 
-// Design Name:    DCUP - CPU Module
-// Module Name:    DCUP 
+// Design Name:    DCPU - CPU Module
+// Module Name:    DCPU 
 // Project Name: 
 // Target Devices: 
 // Tool versions: 
@@ -18,7 +18,7 @@
 // Additional Comments: 
 //
 //////////////////////////////////////////////////////////////////////////////////
-module DCUP(
+module DCPU(
   input  wire       CLK,          // Clock Signal               (posedge)
   input  wire       RST,          // Asynchronized Reset Signal (negedge)
   input  wire       EN,           // Enable Signal              (posedge)
