@@ -31,9 +31,10 @@ module DCPU_test01;
   // Data Transfer
   `define LOAD  5'b00010
   `define STORE 5'b00011
-  `define LDIL  5'b00100
-  `define LDIH  5'b00101
+  // Arithmetic
+  `define CMP   5'b00100
   // Control
+  `define BE    5'b00101
   `define JUMP  5'b00110
   `define JMPR  5'b00111
   `define BZ    5'b01000
@@ -52,9 +53,9 @@ module DCPU_test01;
   `define SUBI  5'b10100
   `define SUBB  5'b10101
   `define INC   5'b10110
-  `define CMP   5'b10111
-  // Control
-  `define BE    5'b11000
+  // Data Transfer
+  `define LDIL  5'b10111
+  `define LDIH  5'b11000
   // Logic
   `define XOR   5'b11001
   `define AND   5'b11010
@@ -97,11 +98,11 @@ module DCPU_test01;
 	wire [7:0] DataMemAddr;
 	wire DataMemWE;
 	wire [15:0] DataOut;
-  //wire [15:0] DEBUG;
+  wire [15:0] DEBUG;
 
 	// Instantiate the Unit Under Test (UUT)
 	DCPU uut (
-    //.DEBUG(DEBUG),
+    .DEBUG(DEBUG),
 		.CLK(CLK), 
 		.RST(RST), 
 		.EN(EN), 
@@ -134,29 +135,24 @@ module DCPU_test01;
     #100;
     Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;
     Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;
-    $display("CLK:InstMemAddr:Inst:DataMemAddr:DataIn:DataMemWE:DataOut");
+    $display("CLK:InstMemAddr:Inst:DataMemAddr:DataIn:DataMemWE:DataOut:DEBUG");
     
 		// Monitor configuration
-    $monitor("%b  :%h         :%h:%h         :%h  :%b        :%h   ",
+    $monitor("%b  :%h         :%h:%h         :%h  :%b        :%h   :%h",
              uut.CLK,
              uut.InstMemAddr,
              uut.Inst,
              uut.DataMemAddr,
              uut.DataIn,
              uut.DataMemWE,
-             uut.DataOut);
+             uut.DataOut,
+             uut.DEBUG);
     
     // Test banch
     Inst <= {`LDIL,  `AR0, 4'h0, 4'h1}; #10; CLK <= 1; #10; CLK <= 0;
     Inst <= {`LDIL,  `AR1, 4'h0, 4'h2}; #10; CLK <= 1; #10; CLK <= 0;
-    Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;
-    Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;
-    Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;
     
     Inst <= {`ADD,   `AR0, `BR0, `BR1}; #10; CLK <= 1; #10; CLK <= 0;
-    Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;
-    Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;
-    Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;
     
     Inst <= {`STORE, `AR0, `BR2, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;
     Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;

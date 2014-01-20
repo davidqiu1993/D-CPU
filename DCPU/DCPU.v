@@ -19,6 +19,7 @@
 //
 //////////////////////////////////////////////////////////////////////////////////
 module DCPU(
+  output wire[15:0] DEBUG,
   input  wire       CLK,          // Clock Signal               (posedge)
   input  wire       RST,          // Asynchronized Reset Signal (negedge)
   input  wire       EN,           // Enable Signal              (posedge)
@@ -42,9 +43,10 @@ module DCPU(
   // Data Transfer
   `define LOAD  5'b00010
   `define STORE 5'b00011
-  `define LDIL  5'b00100
-  `define LDIH  5'b00101
+  // Arithmetic
+  `define CMP   5'b00100
   // Control
+  `define BE    5'b00101
   `define JUMP  5'b00110
   `define JMPR  5'b00111
   `define BZ    5'b01000
@@ -63,9 +65,9 @@ module DCPU(
   `define SUBI  5'b10100
   `define SUBB  5'b10101
   `define INC   5'b10110
-  `define CMP   5'b10111
-  // Control
-  `define BE    5'b11000
+  // Data Transfer
+  `define LDIL  5'b10111
+  `define LDIH  5'b11000
   // Logic
   `define XOR   5'b11001
   `define AND   5'b11010
@@ -77,11 +79,11 @@ module DCPU(
   `define SRA   5'b11111
   
   // === Operation Code Definitions ===
-  `define ALU_LOAD  5'b0000
+  `define ALU_CMP   5'b0000
   `define ALU_ADDC  5'b0010
   `define ALU_SUBB  5'b0101
   `define ALU_INC   5'b0110
-  `define ALU_CMP   5'b0111
+  `define ALU_LOAD  5'b0111
   `define ALU_XOR   5'b1001
   `define ALU_AND   5'b1010
   `define ALU_OR    5'b1011
@@ -97,7 +99,15 @@ module DCPU(
   `define EXR3      GR[IDIR[2:0]]
   `define EXVAL2    IDIR[7:4]
   `define EXVAL3    IDIR[3:0]
+  `define IDR1N     IDIR[10:8]
+  `define EXR1N     EXIR[10:8]
+  `define MRR1N     MRIR[10:8]
   `define WBR1N     WBIR[10:8]
+  `define IDR2N     IDIR[6:4]
+  `define IDR3N     IDIR[2:0]
+  
+  ////// DEBUG //////
+  reg[15:0] DEBUGR;
   
   
   // === CPU State ===
@@ -128,6 +138,14 @@ module DCPU(
   reg [15:0] MRSD;    // Store-to-Memory Data [STAGE:EX]
   reg [15:0] WBRC;    // Result Data Register [STAGE:MR]
   
+  // === Hazard Handling ===
+  reg        PCSt;    // PC Stalled
+  wire       HazardEX;
+  wire       HazardEXL;
+  wire       HazardMR;
+  wire       HazardMRL;
+  wire       HazardWB;
+  wire       HazardWBL;
   
   // === Component ALU ===
   wire[15:0] ALUOUT;
@@ -143,6 +161,17 @@ module DCPU(
                   .OZF(ALUOZF), // Output Zero Flag
                   .ONF(ALUONF)  // Output Negative Flag
                   );
+  
+  
+  /////// DEBUG ///////
+  assign DEBUG = DEBUGR;
+  
+  
+  // === Hazard Checker ===
+  assign HazardEX  = EXIR[15];
+  assign HazardMR  = MRIR[15];
+  assign HazardMRL = (MRIR[14:11]==4'b0010);
+  assign HazardWBX = WBIR[15]|(WBIR[14:11]==4'b0010);
   
   
   // === External Interfaces ===
@@ -175,6 +204,7 @@ module DCPU(
     if(RST) begin
       IDIR <= 16'b0;  // Clear instruction register
       PC   <= 8'b0;   // Clear program counter
+      PCSt <= 1'b0;   // Clear program counter stall state
     end
     else begin // CLK
       if(state==`SExec) begin
@@ -193,15 +223,24 @@ module DCPU(
         || (MRIR[15:11]==`BS  &&  MRNF)
         || (MRIR[15:11]==`BE  &&  MRZF))
         begin
-          PC <= MRRC[7:0]; // Instruction address from ALU result
+          PC   <= MRRC[7:0]; // Instruction address from ALU result
+          PCSt <= 1'b0;      // Clear stall state
         end
         else begin
-          PC <= PC + 1;    // Instruction address points to next
+          if((Inst==`LOAD)&(~PCSt)) begin
+            PC   <= PC;     // Stall one line of code
+            PCSt <= 1'b1;   // Set state as stalled
+          end
+          else begin
+            PC   <= PC + 1; // Instruction address points to next
+            PCSt <= 1'b0;   // Clear the stall state
+          end
         end
       end
       else begin // SIdle
         IDIR <= IDIR;      // Hold the current instruction
         PC   <= PC;        // Hold the current address
+        PCSt <= PCSt;      // Hold the current stall state
       end
     end
   end
@@ -224,220 +263,196 @@ module DCPU(
         // Select opcode for ALU
         case(IDIR[15:14])
           2'b00:  begin
-                    if(IDIR[13:11]==3'b010 || IDIR[13:11]==3'b111)
-                      EXOP  <= `ALU_ADDC;
-                    else
-                      EXOP  <= `ALU_LOAD;
+                    case(IDIR[13:11])
+                      3'b100:   EXOP <= `ALU_CMP;
+                      3'b110:   EXOP <= `ALU_LOAD;
+                      default:  EXOP <= `ALU_ADDC;
+                    endcase
                   end
           2'b01:  begin
-                    EXOP    <= `ALU_ADDC;
+                    EXOP <= `ALU_ADDC;
                   end
           2'b10:  begin
                     if(IDIR[13:11]==3'b000 || IDIR[13:11]==3'b001)
-                      EXOP  <= `ALU_ADDC;
+                      EXOP <= `ALU_ADDC;
                     else if(IDIR[13:11]==3'b011 || IDIR[13:11]==3'b100)
-                      EXOP  <= `ALU_SUBB;
+                      EXOP <= `ALU_SUBB;
                     else
-                      EXOP  <= IDIR[14:11];
+                      EXOP <= IDIR[14:11];
                   end
           2'b11:  begin
-                    EXOP    <= IDIR[14:11];
+                    if(IDIR[13:11]==3'b000)
+                      EXOP <= `ALU_LOAD;
+                    else
+                      EXOP <= IDIR[14:11];
                   end
         endcase
         
-        // Select the value of EXRA, EXRB, EXSD, EXCF
+        // Select the value of EXCF
+        if(IDIR[15:11]==`SUBB||IDIR[15:11]==`ADDC)
+          EXCF <= MRCF;
+        else
+          EXCF <= 0;
+        
+        // Select the value of EXSD
+        if(IDIR[15:11]==`STORE)
+          if      (HazardEX &(`IDR1N==`EXR1N)) EXSD <= ALUOUT;
+          else if (HazardMR &(`IDR1N==`MRR1N)) EXSD <= MRRC;
+          else if (HazardMRL&(`IDR1N==`MRR1N)) EXSD <= DataIn;
+          else if (HazardWBX&(`IDR1N==`WBR1N)) EXSD <= WBRC;
+          else                                 EXSD <= `EXR1;
+        else
+          EXSD <= 0;
+        
+        // Select the value of EXRA, EXRB
         case(IDIR[15:11])
-          `NOP:   begin
-                    EXRA <= 0;
-                    EXRB <= 0;
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `HALT:  begin
-                    EXRA <= 0;
-                    EXRB <= 0;
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
           `LOAD:  begin
-                    EXRA <= `EXR2;
+                    if      (HazardEX &(`IDR2N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR2N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR2N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR2N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR2;
                     EXRB <= `EXVAL3;
-                    EXSD <= 0;
-                    EXCF <= 0;
                   end
           `STORE: begin
-                    EXRA <= 0;
-                    EXRB <= 0;
-                    EXSD <= `EXR1;
-                    EXCF <= 0;
-                  end
-          `LDIL:  begin
-                    EXRA <= 0;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `LDIH:  begin
-                    EXRA <= 0;
-                    EXRB <= {`EXVAL2,`EXVAL3,8'b0};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `JUMP:  begin
-                    EXRA <= 0;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `JMPR:  begin
-                    EXRA <= `EXR1;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `BZ:    begin
-                    EXRA <= `EXR1;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `BNZ:   begin
-                    EXRA <= `EXR1;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `BN:    begin
-                    EXRA <= `EXR1;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `BNN:   begin
-                    EXRA <= `EXR1;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `BC:    begin
-                    EXRA <= `EXR1;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `BNC:   begin
-                    EXRA <= `EXR1;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `BB:   begin
-                    EXRA <= `EXR1;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `BS:    begin
-                    EXRA <= `EXR1;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `ADD:   begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `ADDI:  begin
-                    EXRA <= `EXR1;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `ADDC:  begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= MRCF;
-                  end
-          `SUB:   begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `SUBI:  begin
-                    EXRA <= `EXR2;
-                    EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `SUBB:  begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= MRCF;
-                  end
-          `INC:   begin
-                    EXRA <= `EXR2;
-                    EXRB <= 0;
-                    EXSD <= 0;
-                    EXCF <= 0;
-                  end
-          `CMP:   begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= 0;
+                    if      (HazardEX &(`IDR2N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR2N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR2N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR2N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR2;
+                    EXRB <= `EXVAL3;
                   end
           `BE:    begin
-                    EXRA <= `EXR1;
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
                     EXRB <= {`EXVAL2,`EXVAL3};
-                    EXSD <= 0;
-                    EXCF <= 0;
                   end
-          `XOR:   begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= 0;
+          `JUMP:  begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
                   end
-          `AND:   begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= 0;
+          `JMPR:  begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
                   end
-          `OR:    begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= 0;
+          `BZ:    begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
                   end
-          `SLL:   begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= 0;
+          `BNZ:   begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
                   end
-          `SLA:   begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= 0;
+          `BN:    begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
                   end
-          `SRL:   begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= 0;
+          `BNN:   begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
                   end
-          `SRA:   begin
-                    EXRA <= `EXR2;
-                    EXRB <= `EXR3;
-                    EXSD <= 0;
-                    EXCF <= 0;
+          `BC:    begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                  end
+          `BNC:   begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                  end
+          `BB:   begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                  end
+          `BS:    begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                  end
+          `ADDI:  begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                  end
+          `SUBI:  begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                  end
+          `LDIL:  begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3};
+                  end
+          `LDIH:  begin
+                    if      (HazardEX &(`IDR1N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR1N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR1N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR1N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR1;
+                    EXRB <= {`EXVAL2,`EXVAL3,8'b0};
+                  end
+          default:begin
+                    if      (HazardEX &(`IDR2N==`EXR1N)) EXRA <= ALUOUT;
+                    else if (HazardMR &(`IDR2N==`MRR1N)) EXRA <= MRRC;
+                    else if (HazardMRL&(`IDR2N==`MRR1N)) EXRA <= DataIn;
+                    else if (HazardWBX&(`IDR2N==`WBR1N)) EXRA <= WBRC;
+                    else                                 EXRA <= `EXR2;
+                    if      (HazardEX &(`IDR3N==`EXR1N)) EXRB <= ALUOUT;
+                    else if (HazardMR &(`IDR3N==`MRR1N)) EXRB <= MRRC;
+                    else if (HazardMRL&(`IDR3N==`MRR1N)) EXRB <= DataIn;
+                    else if (HazardWBX&(`IDR3N==`WBR1N)) EXRB <= WBRC;
+                    else                                 EXRB <= `EXR3;
                   end
         endcase
       end
@@ -529,9 +544,7 @@ module DCPU(
       GR[7] <= 0;
     end
     else begin // CLK
-      if((state==`SExec) && (WBIR[15:11]==`LOAD
-                          || WBIR[15:12]==2'b0010
-                          || (WBIR[15]==1'b1 && WBIR[14:11]!=4'b0111)))
+      if((state==`SExec) && ((WBIR[15:11]==`LOAD)|WBIR[15]))
       begin
         // Update values of general registers
         GR[0] <= (`WBR1N==3'h0) ? (WBRC) : (GR[0]);

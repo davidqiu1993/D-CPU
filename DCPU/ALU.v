@@ -40,10 +40,10 @@ module ALU(
   assign ONF = (OPC[3]) ? (1'b0) : (ROUT[15]);
   
   // OUTPUT : OUT, OCF
-  assign OUT = (OPC==4'b0111) ? (16'b0) : (ROUT);
+  assign OUT = (OPC==4'b0000) ? (16'b0) : (ROUT); // `ALU_CMP == 0000
   always @(*) case(OPC)
-      4'b0000:begin // Mnomonic: ALU_LOAD
-                ROUT        = IN2;
+      4'b0000:begin // Mnomonic: ALU_CMP
+                ROUT        = IN1-IN2;
                 OCF         = 0;
               end
       4'b0001:begin // Mnomonic: <null>
@@ -68,8 +68,8 @@ module ALU(
       4'b0110:begin // Mnomonic: ALU_INC
                 {OCF,ROUT}  = IN1+1;
               end
-      4'b0111:begin // Mnomonic: ALU_CMP
-                ROUT        = IN1-IN2;
+      4'b0111:begin // Mnomonic: ALU_LOAD
+                ROUT        = IN2;
                 OCF         = 0;
               end
       4'b1000:begin // Mnomonic: <null>
