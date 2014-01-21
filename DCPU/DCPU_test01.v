@@ -133,7 +133,7 @@ module DCPU_test01;
     #100;
     Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;
     //Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0;
-    $display("CLK:InstMemAddr:Inst:DataMemAddr:DataIn:DataMemWE:DataOut:DEBUG");
+    $display("CLK:InstMemAddr:Inst:DataMemAddr:DataIn:DataMemWE:DataOut");
     
 		// Monitor configuration
     $monitor("%b  :%h         :%h:%h         :%h  :%b        :%h   ",
@@ -147,21 +147,23 @@ module DCPU_test01;
     
     // Test banch
     DataIn <= 16'h9; // DataMem[0x0000] == 0x0009
-    Inst <= {`LOAD,  `AR0, `BR0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0000
-    Inst <= {`LDIL,  `AR1, 4'h0, 4'h2}; #10; CLK <= 1; #10; CLK <= 0; // 0x0001
-    Inst <= {`JUMP,  `AR0, 4'h2, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0002
-    Inst <= {`SUB,   `AR0, `BR0, `BR1}; #10; CLK <= 1; #10; CLK <= 0; // 0x0003
-    Inst <= {`SUB,   `AR0, `BR0, `BR1}; #10; CLK <= 1; #10; CLK <= 0; // 0x0004
-    Inst <= {`SUB,   `AR0, `BR0, `BR1}; #10; CLK <= 1; #10; CLK <= 0; // 0x0005
+    Inst <= {`LOAD,  `AR0, `BR0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0000 (D-Hazard)
+    Inst <= {`LDIL,  `AR1, 4'h0, 4'h2}; #10; CLK <= 1; #10; CLK <= 0; // 0x0001 (D-Hazard)
+    Inst <= {`ADD,   `AR5, `BR0, `BR1}; #10; CLK <= 1; #10; CLK <= 0; // 0x0002 
+    Inst <= {`JUMP,  `AR0, 4'h2, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0003 (C-Hazard)
+    Inst <= {`SUB,   `AR0, `BR0, `BR1}; #10; CLK <= 1; #10; CLK <= 0; // 0x0004 (Unexpected
+    Inst <= {`SUB,   `AR0, `BR0, `BR1}; #10; CLK <= 1; #10; CLK <= 0; // 0x0005 Inst loaded
+    Inst <= {`SUB,   `AR0, `BR0, `BR1}; #10; CLK <= 1; #10; CLK <= 0; // 0x0006 into CPU)
     
-    Inst <= {`ADD,   `AR0, `BR0, `BR1}; #10; CLK <= 1; #10; CLK <= 0; // 0x0020
-    Inst <= {`STORE, `AR0, `BR2, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0021
-    Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0022
+    Inst <= {`ADD,   `AR0, `BR0, `BR1}; #10; CLK <= 1; #10; CLK <= 0; // 0x0020 (Branched)
+    Inst <= {`STORE, `AR5, `BR2, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0021
+    Inst <= {`STORE, `AR0, `BR2, 4'h1}; #10; CLK <= 1; #10; CLK <= 0; // 0x0022
     Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0023
     Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0024
     Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0025
     Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0026
-    Inst <= {`HALT,  3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0027
+    Inst <= {`NOP,   3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0027
+    Inst <= {`HALT,  3'h0, 4'h0, 4'h0}; #10; CLK <= 1; #10; CLK <= 0; // 0x0028
 
 	end
       

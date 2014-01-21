@@ -239,7 +239,10 @@ module DCPU(
             PCSt <= 1'b1;   // Set state as stalled
           end
           else begin
-            PC   <= PC + 1; // Instruction address points to next
+            if(BrSt==2'b00)
+              PC <= PC + 1; // Instruction address points to next
+            else
+              PC <= PC;     // Hold the PC when control hazard may happen
             PCSt <= 1'b0;   // Clear the stall state
           end
         end
