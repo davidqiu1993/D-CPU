@@ -19,7 +19,6 @@
 //
 //////////////////////////////////////////////////////////////////////////////////
 module DCPU(
-  output wire[15:0] DEBUG,
   input  wire       CLK,          // Clock Signal               (posedge)
   input  wire       RST,          // Asynchronized Reset Signal (negedge)
   input  wire       EN,           // Enable Signal              (posedge)
@@ -106,9 +105,6 @@ module DCPU(
   `define IDR2N     IDIR[6:4]
   `define IDR3N     IDIR[2:0]
   
-  ////// DEBUG //////
-  reg[15:0] DEBUGR;
-  
   
   // === CPU State ===
   reg        state;
@@ -139,13 +135,15 @@ module DCPU(
   reg [15:0] WBRC;    // Result Data Register [STAGE:MR]
   
   // === Hazard Handling ===
-  reg        PCSt;    // PC Stalled
+  reg        PCSt;        // PC Stalled
   wire       HazardEX;
   wire       HazardEXL;
   wire       HazardMR;
   wire       HazardMRL;
   wire       HazardWB;
   wire       HazardWBL;
+  reg [1:0]  BrSt;        // Branch stall state
+  wire       HazardCtrl;
   
   // === Component ALU ===
   wire[15:0] ALUOUT;
@@ -163,15 +161,15 @@ module DCPU(
                   );
   
   
-  /////// DEBUG ///////
-  assign DEBUG = DEBUGR;
-  
-  
   // === Hazard Checker ===
-  assign HazardEX  = EXIR[15];
-  assign HazardMR  = MRIR[15];
-  assign HazardMRL = (MRIR[14:11]==4'b0010);
-  assign HazardWBX = WBIR[15]|(WBIR[14:11]==4'b0010);
+  assign HazardEX   = EXIR[15];
+  assign HazardMR   = MRIR[15];
+  assign HazardMRL  = (MRIR[14:11]==4'b0010);
+  assign HazardWBX  = WBIR[15]|(WBIR[14:11]==4'b0010);
+  assign HazardCtrl = (Inst[15:14]==2'b01)
+                    | (Inst[15:11]==5'b00101||
+                       Inst[15:11]==5'b00110||
+                       Inst[15:11]==5'b00111);
   
   
   // === External Interfaces ===
@@ -205,11 +203,20 @@ module DCPU(
       IDIR <= 16'b0;  // Clear instruction register
       PC   <= 8'b0;   // Clear program counter
       PCSt <= 1'b0;   // Clear program counter stall state
+      BrSt <= 2'b0;   // Clear branch stall state
     end
     else begin // CLK
       if(state==`SExec) begin
-        // Push instruction fetched from instruction memory
-        IDIR <= Inst;
+        // Select the next instruction
+        if(BrSt==2'b00) IDIR <= Inst;
+        else            IDIR <= 16'b0; // `NOP
+        // Determine the branch stall state
+        case(BrSt)
+          2'b00: BrSt <= ((HazardCtrl)?(2'b01):(2'b00));
+          2'b01: BrSt <= 2'b10;
+          2'b10: BrSt <= 2'b11;
+          2'b11: BrSt <= 2'b00;
+        endcase
         // Select next instruction address
         if((MRIR[15:11]==`JUMP)
         || (MRIR[15:11]==`JMPR)
@@ -241,6 +248,7 @@ module DCPU(
         IDIR <= IDIR;      // Hold the current instruction
         PC   <= PC;        // Hold the current address
         PCSt <= PCSt;      // Hold the current stall state
+        BrSt <= BrSt;      // Hold the current branch stall state
       end
     end
   end
